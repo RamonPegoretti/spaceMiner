@@ -57,5 +57,10 @@ export async function currentPilot(): Promise<Pilot | null> {
   return pilots().byId(id);
 }
 
+/** True when the browser sent a valid login cookie, even if its pilot no longer exists. */
+export async function hasSessionCookie(): Promise<boolean> {
+  return Boolean((await cookies()).get(COOKIE)?.value);
+}
+
 export const devLoginEnabled = () =>
   process.env.NODE_ENV !== 'production' || process.env.ENABLE_DEV_LOGIN === 'true';

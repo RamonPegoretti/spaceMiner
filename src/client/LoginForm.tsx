@@ -13,10 +13,10 @@ async function post(url: string, body?: unknown) {
   return data;
 }
 
-export default function LoginForm({ devLogin }: { devLogin: boolean }) {
+export default function LoginForm({ devLogin, notice = '' }: { devLogin: boolean; notice?: string }) {
   const router = useRouter();
   const [mode, setMode] = useState<Mode>('login');
-  const [error, setError] = useState('');
+  const [error, setError] = useState(notice);
   const [busy, setBusy] = useState(false);
 
   const run = async (fn: () => Promise<unknown>) => {

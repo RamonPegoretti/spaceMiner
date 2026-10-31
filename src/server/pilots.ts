@@ -76,7 +76,7 @@ class PostgresPilotStore implements PilotStore {
   }
   /** Creates the table on first use so a fresh database needs no manual setup. */
   private init() {
-    this.ready ??= this.sql`
+    this.ready ??= Promise.resolve(this.sql`
       CREATE TABLE IF NOT EXISTS pilots (
         id uuid PRIMARY KEY,
         name text NOT NULL UNIQUE,
@@ -85,7 +85,10 @@ class PostgresPilotStore implements PilotStore {
         is_test boolean NOT NULL DEFAULT false,
         credits bigint NOT NULL,
         created_at timestamptz NOT NULL DEFAULT now()
-      )`;
+      )`).catch((err) => {
+      this.ready = null; // try again on the next request
+      throw err;
+    });
     return this.ready;
   }
   async create(p: NewPilot) {
