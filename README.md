@@ -11,6 +11,14 @@ npm run dev        # http://localhost:3000
 
 With no `DATABASE_URL`, pilots live in memory and reset on restart. Use **Test pilot** on the login screen to make throwaway accounts.
 
+## How the galaxy works
+
+- The map is generated from a fixed seed (`src/game/galaxy.ts`), so server and client build the same 12 systems without sending them over the network.
+- Each system has 3 to 4 field slots. Fields orbit the sun slowly (one lap takes 6 to 18 hours).
+- A pilot claims a free field for 2,400 credits; their rig then mines 25 t/min. Ore mined is worked out from timestamps (`src/game/claims.ts`), so nothing ticks on the server.
+- When a field runs dry, a new field with a new name, ore and size spawns in the same slot an hour later.
+- Only claims and field generations are stored (`claims`, `field_slots` tables). A unique index allows one open claim per field.
+
 ## Settings (environment variables)
 
 | Name | What it does |
