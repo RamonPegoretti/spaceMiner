@@ -12,6 +12,7 @@ beforeEach(() => {
   delete g.__pilotStore;
   delete g.__worldStore;
   delete g.__factoryStore;
+  delete g.__fleetStore;
 });
 
 const firstSlot = () => [...galaxy().slotById.keys()][0];
@@ -22,7 +23,7 @@ describe('deleting a pilot', () => {
     const b = await pilots().create({ name: 'Bob', email: 'b@example.com', passwordHash: 'scrypt:x:y' });
     const slot = firstSlot();
     await claimField(a.id, slot);
-    await editFactory(a.id, [], { op: 'belts', belts: [{ x: 0, y: 0, dir: 0 }] });
+    await editFactory(a.id, () => 0, { op: 'belts', belts: [{ x: 0, y: 0, dir: 0 }] });
     expect((await worldView(b.id)).fields.find((f) => f.slot === slot)?.claim?.pilotName).toBe('Alice');
 
     await deletePilot(a.id);
@@ -31,7 +32,7 @@ describe('deleting a pilot', () => {
     expect(await pilotClaims(a.id)).toEqual([]);
     expect((await worldView(b.id)).fields.find((f) => f.slot === slot)?.claim).toBeNull();
     // A fresh starter floor, not Alice's edited one, if anyone asked for her factory again.
-    expect((await settledFactory(a.id, [])).layout.belts.some((x) => x.x === 0 && x.y === 0)).toBe(false);
+    expect((await settledFactory(a.id, () => 0)).layout.belts.some((x) => x.x === 0 && x.y === 0)).toBe(false);
     await claimField(b.id, slot); // Bob can now claim it
   });
 

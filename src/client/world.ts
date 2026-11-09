@@ -6,6 +6,8 @@ export interface ClientWorld {
   fields: Map<string, FieldView>;
   ore: WorldView['ore'];
   claims: number;
+  stockpiles: WorldView['stockpiles'];
+  haulers: WorldView['haulers'];
   /** Client clock (ms) when the state arrived. */
   receivedAt: number;
   /** Server clock minus client clock. */
@@ -16,6 +18,8 @@ export const toClientWorld = (w: WorldView): ClientWorld => ({
   fields: new Map(w.fields.map((f) => [f.slot, f])),
   ore: w.ore,
   claims: w.claims,
+  stockpiles: w.stockpiles,
+  haulers: w.haulers,
   receivedAt: Date.now(),
   offset: w.now - Date.now(),
 });

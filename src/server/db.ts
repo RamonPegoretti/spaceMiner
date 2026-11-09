@@ -59,6 +59,15 @@ async function migrate(sql: NeonQueryFunction<false, false>) {
       settled_at timestamptz NOT NULL,
       version int NOT NULL DEFAULT 0
     )`;
+  await sql`
+    CREATE TABLE IF NOT EXISTS haulers (
+      id uuid PRIMARY KEY,
+      pilot_id uuid NOT NULL REFERENCES pilots(id) ON DELETE CASCADE,
+      route jsonb NOT NULL,
+      created_at timestamptz NOT NULL,
+      removed_at timestamptz
+    )`;
+  await sql`CREATE INDEX IF NOT EXISTS haulers_by_pilot ON haulers (pilot_id)`;
   // Bumped to log a pilot out everywhere; login cookies carry the version they were made with.
   await sql`ALTER TABLE pilots ADD COLUMN IF NOT EXISTS session_version int NOT NULL DEFAULT 0`;
   // Last activity, updated at most hourly, so idle test pilots can be deleted.

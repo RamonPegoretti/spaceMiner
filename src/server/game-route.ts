@@ -1,6 +1,7 @@
 import 'server-only';
 import { currentPilot } from './auth';
 import { fail, ok, publicPilot } from './http';
+import { FleetError } from './fleet';
 import { GameError, worldView } from './world';
 
 /** Runs a game action for the logged-in pilot, then answers with the fresh world state. */
@@ -10,7 +11,7 @@ export async function gameAction(action?: (pilotId: string) => Promise<void>) {
   try {
     if (action) await action(pilot.id);
   } catch (err) {
-    if (err instanceof GameError) return fail(409, err.message);
+    if (err instanceof GameError || err instanceof FleetError) return fail(409, err.message);
     throw err;
   }
   const fresh = action ? await currentPilot() : pilot;

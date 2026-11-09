@@ -4,7 +4,9 @@ import { CLAIM_COST, isActive, MAX_CLAIMS, resolveField, RIG_RATE, type ClaimRec
 import { galaxy } from '@/game/galaxy';
 import type { Ore } from '@/game/resources';
 import { db, usingDatabase } from './db';
+import { logistics, type HaulerRec, type Logistics } from '@/game/haulers';
 import { settledFactory, siloOre } from './factory';
+import { haulersOf } from './fleet';
 import { MemoryPilotStore, pilots } from './pilots';
 
 /** All claims a pilot ever had (for ore totals). */
@@ -158,6 +160,8 @@ export interface WorldView {
   fields: FieldView[];
   ore: Partial<Record<Ore, { amount: number; rate: number }>>;
   claims: number;
+  stockpiles: Logistics['stockpiles'];
+  haulers: (Pick<HaulerRec, 'id' | 'route' | 'createdAt'> & { cargo: Partial<Record<Ore, number>> })[];
 }
 
 function resolveAll(slots: SlotRec[], claims: ClaimRec[], now: number) {
@@ -181,11 +185,15 @@ export async function worldView(pilotId: string): Promise<WorldView> {
   const now = Date.now();
   const { slots, claims } = await store().load(pilotId);
   const fields = resolveAll(slots, claims, now);
-  const factory = await settledFactory(pilotId, claims, now);
+  const haulers = await haulersOf(pilotId);
+  const lg = logistics(claims, pilotId, haulers, now);
+  const factory = await settledFactory(pilotId, lg.supply, now);
   return {
     now,
     fields: fields.map((f) => view(f, pilotId)),
-    ore: siloOre(claims, pilotId, factory, now),
+    ore: siloOre(lg, factory, now),
+    stockpiles: lg.stockpiles,
+    haulers: haulers.filter((h) => h.removedAt === null).map((h) => ({ id: h.id, route: h.route, createdAt: h.createdAt, cargo: lg.cargo[h.id] ?? {} })),
     claims: claims.filter((c) => c.pilotId === pilotId && isActive(c, now)).length,
   };
 }
