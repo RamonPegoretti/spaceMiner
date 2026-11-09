@@ -42,6 +42,14 @@ async function migrate(sql: NeonQueryFunction<false, false>) {
   // One open claim per field: the database itself settles a race between two pilots.
   await sql`CREATE UNIQUE INDEX IF NOT EXISTS claims_one_open_per_slot ON claims (slot) WHERE ended_at IS NULL`;
   await sql`CREATE INDEX IF NOT EXISTS claims_by_pilot ON claims (pilot_id)`;
+  await sql`
+    CREATE TABLE IF NOT EXISTS factories (
+      pilot_id uuid PRIMARY KEY REFERENCES pilots(id) ON DELETE CASCADE,
+      layout jsonb NOT NULL,
+      sim jsonb NOT NULL,
+      settled_at timestamptz NOT NULL,
+      version int NOT NULL DEFAULT 0
+    )`;
 }
 
 /** The SQL client, after making sure the tables exist. */

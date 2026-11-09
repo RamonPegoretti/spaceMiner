@@ -13,6 +13,12 @@ export const SPRITES = {
   junction: S + 'station_junction.png',
   gate: S + 'station_gate.png',
   hauler: S + 'hauler.png',
+  floor: S + 'floor.png',
+  belt: S + 'belt.png',
+  intake: S + 'intake.png',
+  smelter: S + 'smelter.png',
+  assembler: S + 'assembler.png',
+  crate: S + 'crate.png',
   ...Object.fromEntries(
     (['iron', 'nickel', 'ice', 'sil'] as const).flatMap((k) =>
       [0, 1, 2, 3, 4].map((i) => [`asteroid_${k}_${i}`, `${S}asteroid_${k}_${i}.png`]),
