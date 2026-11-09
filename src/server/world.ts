@@ -1,10 +1,16 @@
 import 'server-only';
 import { randomUUID } from 'node:crypto';
-import { CLAIM_COST, isActive, MAX_CLAIMS, pilotOre, resolveField, RIG_RATE, type ClaimRec, type FieldState, type SlotRec } from '@/game/claims';
+import { CLAIM_COST, isActive, MAX_CLAIMS, resolveField, RIG_RATE, type ClaimRec, type FieldState, type SlotRec } from '@/game/claims';
 import { galaxy } from '@/game/galaxy';
 import type { Ore } from '@/game/resources';
 import { db, usingDatabase } from './db';
+import { settledFactory, siloOre } from './factory';
 import { MemoryPilotStore, pilots } from './pilots';
+
+/** All claims a pilot ever had (for ore totals). */
+export async function pilotClaims(pilotId: string) {
+  return (await store().load(pilotId)).claims.filter((c) => c.pilotId === pilotId);
+}
 
 /** Storage for the changing parts of the galaxy: which generation each field is on, and claims. */
 interface WorldStore {
@@ -167,10 +173,11 @@ export async function worldView(pilotId: string): Promise<WorldView> {
   const now = Date.now();
   const { slots, claims } = await store().load(pilotId);
   const fields = resolveAll(slots, claims, now);
+  const factory = await settledFactory(pilotId, claims, now);
   return {
     now,
     fields: fields.map((f) => view(f, pilotId)),
-    ore: pilotOre(claims, pilotId, now),
+    ore: siloOre(claims, pilotId, factory, now),
     claims: claims.filter((c) => c.pilotId === pilotId && isActive(c, now)).length,
   };
 }

@@ -13,15 +13,17 @@ import type { MapView } from './MapCanvas';
 import { fmtDuration, fmtTonnes, oreNow, remainingNow, serverNow, toClientWorld, type ClientWorld } from './world';
 
 const MapCanvas = dynamic(() => import('./MapCanvas'), { ssr: false });
+const FactoryScreen = dynamic(() => import('./FactoryScreen'), { ssr: false });
 
 const ORE_ICON: Record<Ore, string> = { iron: UI.oreIron, nickel: UI.oreNickel, ice: UI.oreIce, silicate: UI.oreSil };
 const POLL_MS = 5_000;
 
-const NAV = [
-  { label: 'Map', icon: UI.iconMap, ready: true },
-  { label: 'Factory', icon: UI.iconFactory, ready: false },
-  { label: 'Market', icon: UI.iconMarket, ready: false },
-  { label: 'Fleet', icon: UI.iconFleet, ready: false },
+type Screen = 'map' | 'factory';
+const NAV: { label: string; icon: string; screen?: Screen }[] = [
+  { label: 'Map', icon: UI.iconMap, screen: 'map' },
+  { label: 'Factory', icon: UI.iconFactory, screen: 'factory' },
+  { label: 'Market', icon: UI.iconMarket },
+  { label: 'Fleet', icon: UI.iconFleet },
 ];
 
 async function api(url: string, body?: unknown): Promise<{ pilot: PublicPilot; world: WorldView }> {
@@ -50,6 +52,14 @@ export default function GameScreen({ pilot: initialPilot, saved }: { pilot: Publ
   const [selected, setSelected] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [screen, setScreen] = useState<Screen>('map');
+  const [phone, setPhone] = useState(false);
+  useEffect(() => {
+    const check = () => setPhone(window.innerWidth <= 640);
+    check();
+    window.addEventListener('resize', check);
+    return () => window.removeEventListener('resize', check);
+  }, []);
 
   const apply = useCallback((d: { pilot: PublicPilot; world: WorldView }) => {
     const w = toClientWorld(d.world);
@@ -111,12 +121,21 @@ export default function GameScreen({ pilot: initialPilot, saved }: { pilot: Publ
 
   return (
     <main style={{ position: 'fixed', inset: 0 }}>
-      <MapCanvas view={view} world={worldRef} selected={selected} onPickSystem={enterSystem} onPickField={pickField} />
+      {screen === 'map' ? (
+        <MapCanvas view={view} world={worldRef} selected={selected} onPickSystem={enterSystem} onPickField={pickField} />
+      ) : (
+        <FactoryScreen onPilot={setPilot} phone={phone} />
+      )}
 
       <header className="hud-top">
         <h1 className="title hud-logo">SPACEMINER</h1>
         <div className="panel hud-system" style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '0 2px 0 4px' }}>
-          {system ? (
+          {screen === 'factory' ? (
+            <>
+              <span className="tiny muted">FACTORY</span>
+              <span style={{ fontWeight: 600, paddingRight: 4 }}>Home Foundry</span>
+            </>
+          ) : system ? (
             <>
               <button className="btn-alt" style={{ fontSize: 14, minHeight: 36 }} onClick={() => (setView({ mode: 'galaxy' }), setSelected(null))}>
                 ◀ GALAXY
@@ -145,7 +164,7 @@ export default function GameScreen({ pilot: initialPilot, saved }: { pilot: Publ
         </div>
       </header>
 
-      {system && (
+      {screen === 'map' && system && (
         <div className="hud-back-phone">
           <button className="btn-alt" style={{ fontSize: 14, minHeight: 36 }} onClick={() => (setView({ mode: 'galaxy' }), setSelected(null))}>
             ◀ GALAXY
@@ -160,18 +179,20 @@ export default function GameScreen({ pilot: initialPilot, saved }: { pilot: Publ
         {NAV.map((n) => (
           <button
             key={n.label}
-            className={n.ready ? 'btn' : 'hud-nav-item'}
-            aria-label={n.ready ? n.label : `${n.label} (coming soon)`}
-            title={n.ready ? n.label : `${n.label}: coming soon`}
-            disabled={!n.ready}
-            style={n.ready ? { minHeight: 0, padding: 0 } : undefined}
+            className={n.screen === screen ? 'btn' : 'hud-nav-item'}
+            aria-label={n.screen ? n.label : `${n.label} (coming soon)`}
+            aria-current={n.screen === screen ? 'page' : undefined}
+            title={n.screen ? n.label : `${n.label}: coming soon`}
+            disabled={!n.screen}
+            onClick={() => n.screen && (setScreen(n.screen), setSelected(null))}
+            style={n.screen === screen ? { minHeight: 0, padding: 0 } : { cursor: n.screen ? 'pointer' : undefined }}
           >
             <img src={n.icon} alt="" width={36} height={36} />
           </button>
         ))}
       </nav>
 
-      {field && world && system && (
+      {screen === 'map' && field && world && system && (
         <FieldPanel
           world={world}
           field={field}
@@ -185,8 +206,8 @@ export default function GameScreen({ pilot: initialPilot, saved }: { pilot: Publ
         />
       )}
 
-      <footer className="hud-bottom">
-        <div className="panel hud-hint" style={{ padding: '0 4px' }}>
+      <footer className="hud-bottom" style={screen === 'factory' ? { display: 'none' } : undefined}>
+        <div className="panel hud-hint" style={{ padding: '0 4px', display: screen === 'map' ? undefined : 'none' }}>
           <span className="tiny muted">
             {system ? 'TAP A FIELD TO CLAIM IT · TAP A GATE TO JUMP' : 'TAP A STAR SYSTEM TO ENTER'} · DRAG TO MOVE · SCROLL OR PINCH TO ZOOM
           </span>
