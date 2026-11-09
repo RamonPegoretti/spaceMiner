@@ -2,16 +2,16 @@ import type { FactoryOp } from '@/game/factory';
 import { currentPilot } from '@/server/auth';
 import { editFactory, FactoryError, settledFactory, siloOre } from '@/server/factory';
 import { fail, ok, publicPilot, readJson } from '@/server/http';
-import { pilotClaims } from '@/server/world';
+import { pilotLogistics } from '@/server/fleet';
 
 export const dynamic = 'force-dynamic';
 
 async function respond(pilotId: string) {
   const pilot = await currentPilot();
-  const claims = await pilotClaims(pilotId);
   const now = Date.now();
-  const f = await settledFactory(pilotId, claims, now);
-  return ok({ pilot: pilot && publicPilot(pilot), now, factory: { layout: f.layout, sim: f.sim, settledAt: f.settledAt }, ore: siloOre(claims, pilotId, f, now) });
+  const { logistics } = await pilotLogistics(pilotId, now);
+  const f = await settledFactory(pilotId, logistics.supply, now);
+  return ok({ pilot: pilot && publicPilot(pilot), now, factory: { layout: f.layout, sim: f.sim, settledAt: f.settledAt }, ore: siloOre(logistics, f, now) });
 }
 
 /** Your factory floor, run forward to now. */
@@ -27,7 +27,7 @@ export async function POST(req: Request) {
   if (!pilot) return fail(401, 'Not logged in');
   const op = (await readJson(req)) as unknown as FactoryOp;
   try {
-    await editFactory(pilot.id, await pilotClaims(pilot.id), op);
+    await editFactory(pilot.id, (await pilotLogistics(pilot.id)).logistics.supply, op);
   } catch (err) {
     if (err instanceof FactoryError) return fail(409, err.message);
     throw err;

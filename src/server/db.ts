@@ -50,6 +50,15 @@ async function migrate(sql: NeonQueryFunction<false, false>) {
       settled_at timestamptz NOT NULL,
       version int NOT NULL DEFAULT 0
     )`;
+  await sql`
+    CREATE TABLE IF NOT EXISTS haulers (
+      id uuid PRIMARY KEY,
+      pilot_id uuid NOT NULL REFERENCES pilots(id) ON DELETE CASCADE,
+      route jsonb NOT NULL,
+      created_at timestamptz NOT NULL,
+      removed_at timestamptz
+    )`;
+  await sql`CREATE INDEX IF NOT EXISTS haulers_by_pilot ON haulers (pilot_id)`;
 }
 
 /** The SQL client, after making sure the tables exist. */

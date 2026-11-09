@@ -1,5 +1,5 @@
 import 'server-only';
-import { pilotOre, type ClaimRec } from '@/game/claims';
+import type { Logistics } from '@/game/haulers';
 import { applyOp, emptySim, FloorError, isLayout, pruneSim, simulate, starterLayout, type FactoryOp, type Layout, type Sim } from '@/game/factory';
 import { ORES, RECIPE_BY_ID, type Ore } from '@/game/resources';
 import { db, usingDatabase } from './db';
@@ -83,7 +83,7 @@ const g = globalThis as unknown as { __factoryStore?: FactoryStore };
 const store = (): FactoryStore => (g.__factoryStore ??= usingDatabase() ? new PostgresFactoryStore() : new MemoryFactoryStore());
 
 /** Loads the pilot's factory (making the starter floor on first visit) and runs it up to now. */
-export async function settledFactory(pilotId: string, claims: ClaimRec[], now = Date.now()) {
+export async function settledFactory(pilotId: string, supply: Logistics['supply'], now = Date.now()) {
   let f = await store().get(pilotId);
   if (!f) {
     f = { layout: starterLayout(), sim: emptySim(), settledAt: now, version: 0 };
@@ -93,8 +93,7 @@ export async function settledFactory(pilotId: string, claims: ClaimRec[], now = 
   const minutes = Math.floor((now - f.settledAt) / MIN);
   if (minutes < 1) return f;
   const start = f.settledAt;
-  const mine = claims.filter((c) => c.pilotId === pilotId);
-  const minedBy = (ore: Ore, minute: number) => pilotOre(mine, pilotId, start + minute * MIN)[ore]?.amount ?? 0;
+  const minedBy = (ore: Ore, minute: number) => supply(ore, start + minute * MIN);
   const next: FactoryRec = { ...f, sim: simulate(f.layout, f.sim, minutes, minedBy), settledAt: start + minutes * MIN };
   // If another request settled first, theirs wins; ours was the same maths.
   if (await store().save(pilotId, next, f.version, 0)) return { ...next, version: f.version + 1 };
@@ -103,9 +102,9 @@ export async function settledFactory(pilotId: string, claims: ClaimRec[], now = 
 
 export class FactoryError extends Error {}
 
-export async function editFactory(pilotId: string, claims: ClaimRec[], op: FactoryOp) {
+export async function editFactory(pilotId: string, supply: Logistics['supply'], op: FactoryOp) {
   for (let attempt = 0; attempt < 3; attempt++) {
-    const f = await settledFactory(pilotId, claims);
+    const f = await settledFactory(pilotId, supply);
     let result;
     try {
       result = applyOp(f.layout, op);
@@ -121,20 +120,19 @@ export async function editFactory(pilotId: string, claims: ClaimRec[], op: Facto
   throw new FactoryError('The floor changed while you were editing. Try again.');
 }
 
-/** Ore in the silo: everything mined minus what the factory took, and how fast it is changing. */
-export function siloOre(claims: ClaimRec[], pilotId: string, f: FactoryRec, now: number) {
-  const mined = pilotOre(claims, pilotId, now);
+/** Ore in the silo: everything that reached home minus what the factory took, and how fast it is changing. */
+export function siloOre(lg: Logistics, f: FactoryRec, now: number) {
   const out: Partial<Record<Ore, { amount: number; rate: number }>> = {};
   for (const ore of ORES) {
-    const m = mined[ore];
+    const got = lg.supply(ore, now);
     const used = f.sim.oreUsed[ore] ?? 0;
-    let rate = m?.rate ?? 0;
+    let rate = lg.homeRate[ore] ?? 0;
     for (const machine of f.layout.machines) {
       const r = machine.recipe ? RECIPE_BY_ID.get(machine.recipe) : null;
       if (machine.kind === 'intake' && r?.output === ore) rate -= f.sim.machines[machine.id]?.rate ?? 0;
     }
-    const amount = Math.max(0, (m?.amount ?? 0) - used);
-    if (m || used) out[ore] = { amount, rate: amount <= 0 && rate < 0 ? 0 : rate };
+    const amount = Math.max(0, got - used);
+    if (got || used) out[ore] = { amount, rate: amount <= 0 && rate < 0 ? 0 : rate };
   }
   return out;
 }
