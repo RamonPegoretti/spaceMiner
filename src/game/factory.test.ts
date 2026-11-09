@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { applyOp, connections, emptySim, FloorError, simulate, starterLayout, warehouseUsed, type Layout } from './factory';
+import { applyOp, connections, emptySim, FloorError, parseFactoryOp, simulate, starterLayout, warehouseUsed, type Layout } from './factory';
 import { MACHINES, WAREHOUSE_CAPACITY, type Ore } from './resources';
 
 /** A silo that has `perMin` of every ore mined per minute, starting with `start`. */
@@ -89,5 +89,62 @@ describe('factory floor', () => {
   it('refuses overlapping or off-grid machines', () => {
     expect(() => applyOp(starterLayout(), { op: 'place', kind: 'smelter', x: 3, y: 3 })).toThrow(FloorError);
     expect(() => applyOp(starterLayout(), { op: 'place', kind: 'assembler', x: 14, y: 0 })).toThrow(FloorError);
+  });
+});
+
+describe('validating factory edits', () => {
+  it('accepts well-formed edits and copies only known fields', () => {
+    expect(parseFactoryOp({ op: 'place', kind: 'smelter', x: 1, y: 2, extra: 'x' })).toEqual({ op: 'place', kind: 'smelter', x: 1, y: 2 });
+    expect(parseFactoryOp({ op: 'belts', belts: [{ x: 1, y: 1, dir: 3, free: true }] })).toEqual({ op: 'belts', belts: [{ x: 1, y: 1, dir: 3 }] });
+    expect(parseFactoryOp({ op: 'remove', x: 0, y: 0 })).toEqual({ op: 'remove', x: 0, y: 0 });
+    expect(parseFactoryOp({ op: 'recipe', id: 'm2', recipe: 'ironPlate' })).toEqual({ op: 'recipe', id: 'm2', recipe: 'ironPlate' });
+  });
+
+  it.each([
+    ['inherited kind "constructor"', { op: 'place', kind: 'constructor', x: 1, y: 1 }],
+    ['kind "__proto__"', { op: 'place', kind: '__proto__', x: 1, y: 1 }],
+    ['kind "toString"', { op: 'place', kind: 'toString', x: 1, y: 1 }],
+    ['x as a string', { op: 'place', kind: 'smelter', x: '1', y: 1 }],
+    ['x as a fraction', { op: 'place', kind: 'smelter', x: 1.5, y: 1 }],
+    ['a null belt', { op: 'belts', belts: [null] }],
+    ['a belt with a bad direction', { op: 'belts', belts: [{ x: 1, y: 1, dir: 4 }] }],
+    ['too many belts', { op: 'belts', belts: Array.from({ length: 65 }, (_, i) => ({ x: i % 16, y: 0, dir: 0 })) }],
+    ['an unknown recipe', { op: 'recipe', id: 'm2', recipe: 'constructor' }],
+    ['an unknown op', { op: 'nuke' }],
+    ['not an object', 'place'],
+    ['null', null],
+    ['an array', [{ op: 'remove', x: 0, y: 0 }]],
+  ])('rejects %s', (_label, v) => {
+    expect(parseFactoryOp(v)).toBeNull();
+  });
+
+  it('applyOp refuses inherited machine kinds too', () => {
+    expect(() => applyOp(starterLayout(), { op: 'place', kind: 'constructor' as never, x: 0, y: 0 })).toThrow(FloorError);
+  });
+});
+
+describe('starter pieces', () => {
+  it('refund nothing when removed', () => {
+    const l = starterLayout();
+    expect(applyOp(l, { op: 'remove', x: 7, y: 3 }).cost).toBe(0); // smelter
+    expect(applyOp(l, { op: 'remove', x: 4, y: 4 }).cost).toBe(0); // belt
+  });
+
+  it('are recognised on floors saved before the free flag', () => {
+    const l = starterLayout();
+    for (const m of l.machines) delete m.free;
+    expect(applyOp(l, { op: 'remove', x: 7, y: 3 }).cost).toBe(0);
+  });
+
+  it('stay free when a belt is re-pointed', () => {
+    const { layout } = applyOp(starterLayout(), { op: 'belts', belts: [{ x: 4, y: 4, dir: 1 }] });
+    expect(applyOp(layout, { op: 'remove', x: 4, y: 4 }).cost).toBe(0);
+  });
+
+  it('bought pieces still refund half', () => {
+    const placed = applyOp(starterLayout(), { op: 'place', kind: 'smelter', x: 0, y: 7 }).layout;
+    expect(applyOp(placed, { op: 'remove', x: 0, y: 7 }).cost).toBe(-Math.floor(MACHINES.smelter.cost / 2));
+    const belted = applyOp(starterLayout(), { op: 'belts', belts: [{ x: 0, y: 0, dir: 0 }] }).layout;
+    expect(applyOp(belted, { op: 'remove', x: 0, y: 0 }).cost).toBeLessThan(0);
   });
 });

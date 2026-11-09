@@ -20,11 +20,15 @@ export interface Machine {
   y: number;
   /** Recipe id. Crates have none. */
   recipe: string | null;
+  /** Part of the free starter floor: removing it refunds nothing. */
+  free?: boolean;
 }
 export interface Belt {
   x: number;
   y: number;
   dir: Dir;
+  /** Part of the free starter floor: removing it refunds nothing. */
+  free?: boolean;
 }
 export interface Layout {
   machines: Machine[];
@@ -57,13 +61,13 @@ export const emptySim = (): Sim => ({ machines: {}, warehouse: {}, oreUsed: {} }
 /** A new pilot's floor: a ready-made iron line (intake, smelter, crate) to learn from. */
 export function starterLayout(): Layout {
   const belts: Belt[] = [];
-  for (let x = 4; x <= 6; x++) belts.push({ x, y: 4, dir: 0 });
-  for (let x = 9; x <= 10; x++) belts.push({ x, y: 4, dir: 0 });
+  for (let x = 4; x <= 6; x++) belts.push({ x, y: 4, dir: 0, free: true });
+  for (let x = 9; x <= 10; x++) belts.push({ x, y: 4, dir: 0, free: true });
   return {
     machines: [
-      { id: 'm1', kind: 'intake', x: 2, y: 3, recipe: 'pull-iron' },
-      { id: 'm2', kind: 'smelter', x: 7, y: 3, recipe: 'ironPlate' },
-      { id: 'm3', kind: 'crate', x: 11, y: 4, recipe: null },
+      { id: 'm1', kind: 'intake', x: 2, y: 3, recipe: 'pull-iron', free: true },
+      { id: 'm2', kind: 'smelter', x: 7, y: 3, recipe: 'ironPlate', free: true },
+      { id: 'm3', kind: 'crate', x: 11, y: 4, recipe: null, free: true },
     ],
     belts,
     nextId: 4,
@@ -76,10 +80,20 @@ const defaultRecipe = (kind: MachineKind) => recipesFor(kind)[0]?.id ?? null;
 
 const key = (x: number, y: number) => `${x},${y}`;
 
+/** True for real machine kinds. Uses hasOwn so names like "constructor" or "__proto__" never count. */
+export const isMachineKind = (k: unknown): k is MachineKind => typeof k === 'string' && Object.hasOwn(MACHINES, k);
+
+/**
+ * Starter machines always have ids m1 to m3 (new machines start at m4), so floors saved
+ * before the `free` flag existed are recognised too.
+ */
+const isFree = (m: Machine) => m.free === true || m.id === 'm1' || m.id === 'm2' || m.id === 'm3';
+
 /** Which machine covers each tile. */
 export function tileMap(layout: Layout) {
   const tiles = new Map<string, Machine>();
   for (const m of layout.machines) {
+    if (!isMachineKind(m.kind)) continue;
     const { w, h } = MACHINES[m.kind];
     for (let dx = 0; dx < w; dx++) for (let dy = 0; dy < h; dy++) tiles.set(key(m.x + dx, m.y + dy), m);
   }
@@ -98,6 +112,10 @@ export function connections(layout: Layout) {
   const carried = new Map<string, string>();
 
   for (const m of layout.machines) {
+    if (!isMachineKind(m.kind)) {
+      edges.set(m.id, []);
+      continue;
+    }
     const { w, h } = MACHINES[m.kind];
     const targets: string[] = [];
     const around: [number, number][] = [];
@@ -241,6 +259,40 @@ export type FactoryOp =
 
 export class FloorError extends Error {}
 
+const MAX_BELTS_PER_EDIT = 64;
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+const int = (v: unknown): v is number => Number.isInteger(v);
+
+/**
+ * Checks an edit sent by a client and copies only the fields we use. Returns null for
+ * anything malformed, so applyOp only ever sees well-typed edits. (Grid bounds and
+ * whether a spot is free are game rules, checked in applyOp.)
+ */
+export function parseFactoryOp(v: unknown): FactoryOp | null {
+  if (!isObj(v)) return null;
+  switch (v.op) {
+    case 'place':
+      return isMachineKind(v.kind) && int(v.x) && int(v.y) ? { op: 'place', kind: v.kind, x: v.x, y: v.y } : null;
+    case 'remove':
+      return int(v.x) && int(v.y) ? { op: 'remove', x: v.x, y: v.y } : null;
+    case 'recipe':
+      return typeof v.id === 'string' && v.id.length <= 32 && typeof v.recipe === 'string' && RECIPE_BY_ID.has(v.recipe)
+        ? { op: 'recipe', id: v.id, recipe: v.recipe }
+        : null;
+    case 'belts': {
+      if (!Array.isArray(v.belts) || v.belts.length === 0 || v.belts.length > MAX_BELTS_PER_EDIT) return null;
+      const belts: Belt[] = [];
+      for (const b of v.belts) {
+        if (!isObj(b) || !int(b.x) || !int(b.y) || !(b.dir === 0 || b.dir === 1 || b.dir === 2 || b.dir === 3)) return null;
+        belts.push({ x: b.x, y: b.y, dir: b.dir });
+      }
+      return { op: 'belts', belts };
+    }
+    default:
+      return null;
+  }
+}
+
 const inGrid = (x: number, y: number) => Number.isInteger(x) && Number.isInteger(y) && x >= 0 && y >= 0 && x < GRID_W && y < GRID_H;
 
 /** Applies one edit. Returns the new layout and its cost in credits (negative for a refund). */
@@ -251,8 +303,8 @@ export function applyOp(layout: Layout, op: FactoryOp): { layout: Layout; cost: 
 
   switch (op.op) {
     case 'place': {
+      if (!isMachineKind(op.kind)) throw new FloorError('Unknown machine.');
       const spec = MACHINES[op.kind];
-      if (!spec) throw new FloorError('Unknown machine.');
       for (let dx = 0; dx < spec.w; dx++)
         for (let dy = 0; dy < spec.h; dy++) {
           const x = op.x + dx, y = op.y + dy;
@@ -269,7 +321,7 @@ export function applyOp(layout: Layout, op: FactoryOp): { layout: Layout; cost: 
         if (!inGrid(b.x, b.y) || ![0, 1, 2, 3].includes(b.dir)) throw new FloorError('A belt is off the floor.');
         if (tiles.has(key(b.x, b.y))) continue; // skip tiles under machines
         const i = beltAt(b.x, b.y);
-        if (i >= 0) next.belts[i] = { x: b.x, y: b.y, dir: b.dir };
+        if (i >= 0) next.belts[i] = { ...next.belts[i], dir: b.dir }; // re-pointing keeps a starter belt free
         else {
           next.belts.push({ x: b.x, y: b.y, dir: b.dir });
           cost += BELT_COST;
@@ -281,16 +333,16 @@ export function applyOp(layout: Layout, op: FactoryOp): { layout: Layout; cost: 
       const m = tiles.get(key(op.x, op.y));
       if (m) {
         next.machines = next.machines.filter((x) => x.id !== m.id);
-        return { layout: next, cost: -Math.floor(MACHINES[m.kind].cost * REFUND) };
+        return { layout: next, cost: isFree(m) ? 0 : -Math.floor(MACHINES[m.kind].cost * REFUND) };
       }
       const i = beltAt(op.x, op.y);
       if (i < 0) throw new FloorError('Nothing to remove there.');
-      next.belts.splice(i, 1);
-      return { layout: next, cost: -Math.floor(BELT_COST * REFUND) };
+      const [belt] = next.belts.splice(i, 1);
+      return { layout: next, cost: belt.free ? 0 : -Math.floor(BELT_COST * REFUND) };
     }
     case 'recipe': {
       const m = next.machines.find((x) => x.id === op.id);
-      const r = RECIPE_BY_ID.get(op.recipe);
+      const r = typeof op.recipe === 'string' ? RECIPE_BY_ID.get(op.recipe) : undefined;
       if (!m || !r || r.machine !== m.kind) throw new FloorError('That machine cannot make this.');
       m.recipe = r.id;
       return { layout: next, cost: 0 };

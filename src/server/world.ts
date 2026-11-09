@@ -22,6 +22,8 @@ interface WorldStore {
   openClaim(c: Omit<ClaimRec, 'pilotName' | 'endedAt'>, cost: number): Promise<boolean>;
   /** Ends an open claim owned by this pilot. Returns false if there was none. */
   endClaim(id: string, pilotId: string, now: number): Promise<boolean>;
+  /** Forgets a deleted pilot's claims, which frees their fields. */
+  removePilot(pilotId: string): Promise<void>;
 }
 
 class MemoryWorldStore implements WorldStore {
@@ -55,6 +57,9 @@ class MemoryWorldStore implements WorldStore {
     if (!c) return false;
     c.endedAt = now;
     return true;
+  }
+  async removePilot(pilotId: string) {
+    this.claims = this.claims.filter((c) => c.pilotId !== pilotId);
   }
 }
 
@@ -126,6 +131,9 @@ class PostgresWorldStore implements WorldStore {
     const sql = await db();
     const rows = await sql`UPDATE claims SET ended_at = ${iso(now)} WHERE id = ${id} AND pilot_id = ${pilotId} AND ended_at IS NULL RETURNING id`;
     return rows.length > 0;
+  }
+  async removePilot() {
+    // Claims are deleted with the pilot row (ON DELETE CASCADE).
   }
 }
 
@@ -212,3 +220,6 @@ export async function claimField(pilotId: string, slotId: string) {
 export async function abandonClaim(pilotId: string, claimId: string) {
   if (!(await store().endClaim(claimId, pilotId, Date.now()))) throw new GameError('That claim is already closed.');
 }
+
+/** Drops a deleted pilot's claims from storage. */
+export const removePilotClaims = (pilotId: string) => store().removePilot(pilotId);

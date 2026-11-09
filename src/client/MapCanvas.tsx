@@ -37,6 +37,7 @@ export default function MapCanvas(props: Props) {
 
     (async () => {
       const PIXI = await import('pixi.js');
+      await import('pixi.js/unsafe-eval'); // lets Pixi run under our CSP, which forbids eval
       const { Application, Assets, Container, Graphics, Sprite, Text, TextureStyle } = PIXI;
       TextureStyle.defaultOptions.scaleMode = 'nearest';
 

@@ -8,7 +8,16 @@ import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 let client: NeonQueryFunction<false, false> | null = null;
 let ready: Promise<unknown> | null = null;
 
-export const usingDatabase = () => Boolean(process.env.DATABASE_URL);
+/**
+ * True when a Postgres database is configured. Without one the app keeps everything in memory,
+ * which is fine for local play but would silently lose every pilot in production, so a
+ * production deployment without DATABASE_URL refuses to run instead.
+ */
+export function usingDatabase(env: Record<string, string | undefined> = process.env): boolean {
+  if (env.DATABASE_URL) return true;
+  if (env.VERCEL_ENV === 'production') throw new Error('DATABASE_URL is not set');
+  return false;
+}
 
 async function migrate(sql: NeonQueryFunction<false, false>) {
   await sql`
@@ -49,6 +58,18 @@ async function migrate(sql: NeonQueryFunction<false, false>) {
       sim jsonb NOT NULL,
       settled_at timestamptz NOT NULL,
       version int NOT NULL DEFAULT 0
+    )`;
+  // Bumped to log a pilot out everywhere; login cookies carry the version they were made with.
+  await sql`ALTER TABLE pilots ADD COLUMN IF NOT EXISTS session_version int NOT NULL DEFAULT 0`;
+  // Last activity, updated at most hourly, so idle test pilots can be deleted.
+  await sql`ALTER TABLE pilots ADD COLUMN IF NOT EXISTS last_seen_at timestamptz NOT NULL DEFAULT now()`;
+  // Request counters for rate limiting. Keys never hold a raw IP address, only a hash.
+  await sql`
+    CREATE TABLE IF NOT EXISTS rate_limits (
+      key text NOT NULL,
+      window_start timestamptz NOT NULL,
+      count int NOT NULL,
+      PRIMARY KEY (key, window_start)
     )`;
 }
 
