@@ -54,6 +54,13 @@ button, input { font: inherit; color: inherit; }
 .hud-bottom { position: absolute; left: 12px; right: 12px; bottom: 12px; display: flex; gap: 8px; flex-wrap: wrap; align-items: flex-end; pointer-events: none; }
 .hud-bottom > * { pointer-events: auto; }
 
+.hud-ore { position: absolute; top: 84px; right: 12px; display: flex; gap: 14px; padding: 0 4px; }
+.hud-ore-item { display: flex; align-items: center; gap: 6px; min-width: 70px; }
+.hud-back-phone { display: none !important; }
+.field-panel { position: absolute; right: 12px; top: 150px; width: 360px; max-width: calc(100vw - 24px); padding: 4px; }
+.meter { height: 12px; background: var(--well); border: 3px solid var(--ink); margin-top: 4px; }
+.meter > div { height: 100%; }
+
 @media (max-width: 640px) {
   .hud-top { top: 8px; left: 8px; right: 8px; gap: 6px; }
   .hud-logo, .hud-system, .hud-hint { display: none !important; }
@@ -62,4 +69,8 @@ button, input { font: inherit; color: inherit; }
   .hud-pilot-name { max-width: none; }
   .hud-nav { top: auto; bottom: 8px; left: 8px; right: 8px; transform: none; flex-direction: row; justify-content: space-around; }
   .hud-bottom { bottom: 104px; left: 8px; right: 8px; }
+  .hud-ore { top: 72px; left: 8px; right: 8px; justify-content: space-between; gap: 4px; }
+  .hud-ore-item { min-width: 0; }
+  .hud-back-phone { display: flex !important; align-items: center; gap: 10px; position: absolute; top: 132px; left: 8px; }
+  .field-panel { top: auto; bottom: 100px; left: 8px; right: 8px; width: auto; max-width: none; }
 }
