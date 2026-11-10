@@ -13,6 +13,8 @@ interface FleetStore {
   buy(h: HaulerRec, cost: number, max: number): Promise<boolean>;
   /** Scraps an active hauler and refunds `refund`. False if there was none. */
   scrap(id: string, pilotId: string, now: number, refund: number): Promise<boolean>;
+  /** Forgets a deleted pilot's haulers. */
+  removePilot(pilotId: string): Promise<void>;
 }
 
 class MemoryFleetStore implements FleetStore {
@@ -34,6 +36,9 @@ class MemoryFleetStore implements FleetStore {
     h.removedAt = now;
     this.pilot(pilotId)!.credits += refund;
     return true;
+  }
+  async removePilot(pilotId: string) {
+    this.rows = this.rows.filter((h) => h.pilotId !== pilotId);
   }
 }
 
@@ -75,12 +80,18 @@ class PostgresFleetStore implements FleetStore {
       UPDATE pilots SET credits = credits + ${refund} WHERE id IN (SELECT pilot_id FROM gone) RETURNING id`;
     return rows.length > 0;
   }
+  async removePilot() {
+    // Haulers are deleted with the pilot row (ON DELETE CASCADE).
+  }
 }
 
 const g = globalThis as unknown as { __fleetStore?: FleetStore };
 const store = (): FleetStore => (g.__fleetStore ??= usingDatabase() ? new PostgresFleetStore() : new MemoryFleetStore());
 
 export const haulersOf = (pilotId: string) => store().list(pilotId);
+
+/** Drops a deleted pilot's haulers from storage. */
+export const removePilotHaulers = (pilotId: string) => store().removePilot(pilotId);
 
 /** Everything about a pilot's ore flow right now: claims, haulers, stockpiles and the silo supply. */
 export async function pilotLogistics(pilotId: string, now = Date.now()) {

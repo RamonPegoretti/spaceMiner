@@ -29,9 +29,19 @@ With no `DATABASE_URL`, pilots live in memory and reset on restart. Use **Test p
 
 | Name | What it does |
 |---|---|
-| `DATABASE_URL` | Neon Postgres connection string. Tables are created automatically on first use. |
-| `SESSION_SECRET` | Long random string that signs login cookies. Required in production. |
-| `ENABLE_DEV_LOGIN` | `true` shows the **Test pilot** button on a deployed site. |
+| `DATABASE_URL` | Neon Postgres connection string. Tables are created automatically on first use. Required on Vercel production (the app refuses to run without it rather than quietly keeping pilots in memory). |
+| `SESSION_SECRET` | Long random string that signs login cookies. Required in production. Changing it logs everyone out. |
+| `ENABLE_DEV_LOGIN` | `true` shows the **Test pilot** button on a deployed preview. Ignored on Vercel production, where the button is always off. |
+| `TEST_PILOT_RETENTION_DAYS` | Test pilots idle for this many days are deleted, with their claims and factory. Default `7`. |
+
+## Security and privacy
+
+- Login cookies expire on the server after 30 days. **Exit** (or **Log out on all devices** in the Account panel) makes every copy of a pilot's cookie stop working.
+- Failed logins are limited per email and per IP, and new pilots and test pilots per IP (`src/server/ratelimit.ts`). Only hashes of IP addresses are stored.
+- Every page sends a Content Security Policy and the usual security headers (`next.config.ts`).
+- Pilots can download their data and delete their pilot from the Account panel (tap the pilot name).
+- The privacy policy and terms live in `src/app/privacy/content.ts` and `src/app/terms/content.ts`. `[[Placeholders]]` show highlighted until the operator fills them in.
+- See `SECURITY.md` for reporting problems and what to do after a suspected leak.
 
 ## Layout
 

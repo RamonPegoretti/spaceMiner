@@ -1,7 +1,7 @@
-import type { FactoryOp } from '@/game/factory';
+import { parseFactoryOp } from '@/game/factory';
 import { currentPilot } from '@/server/auth';
 import { editFactory, FactoryError, settledFactory, siloOre } from '@/server/factory';
-import { fail, ok, publicPilot, readJson } from '@/server/http';
+import { fail, guardPost, ok, publicPilot } from '@/server/http';
 import { pilotLogistics } from '@/server/fleet';
 
 export const dynamic = 'force-dynamic';
@@ -23,9 +23,12 @@ export async function GET() {
 
 /** Edit your floor: place, belts, remove or recipe (see FactoryOp). */
 export async function POST(req: Request) {
+  const bad = guardPost(req);
+  if (bad) return bad;
   const pilot = await currentPilot();
   if (!pilot) return fail(401, 'Not logged in');
-  const op = (await readJson(req)) as unknown as FactoryOp;
+  const op = parseFactoryOp(await req.json().catch(() => null));
+  if (!op) return fail(400, 'Unknown edit.');
   try {
     await editFactory(pilot.id, (await pilotLogistics(pilot.id)).logistics.supply, op);
   } catch (err) {

@@ -19,6 +19,8 @@ interface FactoryStore {
   create(pilotId: string, f: FactoryRec): Promise<void>;
   /** Saves if nobody saved since `version`, charging `cost` credits. False if the version moved on or credits ran short. */
   save(pilotId: string, f: FactoryRec, version: number, cost: number): Promise<boolean>;
+  /** Forgets a deleted pilot's factory. */
+  removePilot(pilotId: string): Promise<void>;
 }
 
 class MemoryFactoryStore implements FactoryStore {
@@ -37,6 +39,9 @@ class MemoryFactoryStore implements FactoryStore {
     pilot.credits -= cost;
     this.rows.set(pilotId, { ...structuredClone(f), version: version + 1 });
     return true;
+  }
+  async removePilot(pilotId: string) {
+    this.rows.delete(pilotId);
   }
 }
 
@@ -77,6 +82,9 @@ class PostgresFactoryStore implements FactoryStore {
       UPDATE pilots SET credits = credits - ${cost} WHERE id IN (SELECT pilot_id FROM saved) RETURNING id`;
     return rows.length > 0;
   }
+  async removePilot() {
+    // The factory row is deleted with the pilot row (ON DELETE CASCADE).
+  }
 }
 
 const g = globalThis as unknown as { __factoryStore?: FactoryStore };
@@ -99,6 +107,9 @@ export async function settledFactory(pilotId: string, supply: Logistics['supply'
   if (await store().save(pilotId, next, f.version, 0)) return { ...next, version: f.version + 1 };
   return (await store().get(pilotId)) ?? next;
 }
+
+/** Drops a deleted pilot's factory from storage. */
+export const removePilotFactory = (pilotId: string) => store().removePilot(pilotId);
 
 export class FactoryError extends Error {}
 

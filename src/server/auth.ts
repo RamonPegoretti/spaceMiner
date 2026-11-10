@@ -1,12 +1,15 @@
 import 'server-only';
 import { cookies } from 'next/headers';
-import { createHmac, randomBytes, scrypt as scryptCb, timingSafeEqual } from 'node:crypto';
+import { randomBytes, scrypt as scryptCb, timingSafeEqual } from 'node:crypto';
 import { promisify } from 'node:util';
 import { pilots, type Pilot } from './pilots';
+import { makeToken, MAX_AGE, readToken } from './session';
+
+export { devLoginEnabled } from './session';
 
 const scrypt = promisify(scryptCb) as (pw: string, salt: Buffer, len: number) => Promise<Buffer>;
 const COOKIE = 'sm_session';
-const MAX_AGE = 60 * 60 * 24 * 30; // 30 days
+const HOUR = 60 * 60 * 1000;
 
 function secret(): string {
   const s = process.env.SESSION_SECRET;
@@ -29,11 +32,18 @@ export async function checkPassword(password: string, stored: string): Promise<b
   return timingSafeEqual(expected, actual);
 }
 
-const sign = (value: string) => createHmac('sha256', secret()).update(value).digest('base64url');
+/** A hash of a random password, checked when a login email is unknown so the reply takes as long either way. */
+let dummyHash: Promise<string> | null = null;
+export async function checkLogin(pilot: Pilot | null, password: string): Promise<boolean> {
+  if (pilot?.passwordHash) return checkPassword(password, pilot.passwordHash);
+  dummyHash ??= hashPassword(randomBytes(16).toString('hex'));
+  await checkPassword(password, await dummyHash);
+  return false;
+}
 
-export async function startSession(pilotId: string) {
+export async function startSession(pilot: Pilot) {
   const jar = await cookies();
-  jar.set(COOKIE, `${pilotId}.${sign(pilotId)}`, {
+  jar.set(COOKIE, makeToken(secret(), pilot.id, pilot.sessionVersion), {
     httpOnly: true,
     sameSite: 'lax',
     secure: process.env.NODE_ENV === 'production',
@@ -42,25 +52,36 @@ export async function startSession(pilotId: string) {
   });
 }
 
+/** Logs out: every copy of this pilot's cookie, on every device, stops working. */
 export async function endSession() {
+  const pilot = await currentPilot();
+  if (pilot) await pilots().bumpSessionVersion(pilot.id);
+  (await cookies()).delete(COOKIE);
+}
+
+/** Just forgets the cookie in this browser (used after the pilot was deleted). */
+export async function clearSessionCookie() {
   (await cookies()).delete(COOKIE);
 }
 
 export async function currentPilot(): Promise<Pilot | null> {
   const raw = (await cookies()).get(COOKIE)?.value;
   if (!raw) return null;
-  const dot = raw.lastIndexOf('.');
-  const id = raw.slice(0, dot);
-  const sig = Buffer.from(raw.slice(dot + 1));
-  const good = Buffer.from(sign(id));
-  if (sig.length !== good.length || !timingSafeEqual(sig, good)) return null;
-  return pilots().byId(id);
+  const token = readToken(secret(), raw);
+  if (!token) return null;
+  const pilot = await pilots().byId(token.pilotId);
+  if (!pilot || pilot.sessionVersion !== token.version) return null;
+  // Remember activity (at most once an hour) so idle test pilots can be cleaned up.
+  if (Date.now() - Date.parse(pilot.lastSeenAt) > HOUR) await pilots().touch(pilot.id);
+  return pilot;
 }
 
-/** True when the browser sent a valid login cookie, even if its pilot no longer exists. */
+/**
+ * True when the browser sent a well-formed, correctly signed login cookie whose pilot is gone.
+ * Old-format, expired or revoked cookies count as plain logged out.
+ */
 export async function hasSessionCookie(): Promise<boolean> {
-  return Boolean((await cookies()).get(COOKIE)?.value);
+  const raw = (await cookies()).get(COOKIE)?.value;
+  const token = raw ? readToken(secret(), raw) : null;
+  return Boolean(token && !(await pilots().byId(token.pilotId)));
 }
-
-export const devLoginEnabled = () =>
-  process.env.NODE_ENV !== 'production' || process.env.ENABLE_DEV_LOGIN === 'true';

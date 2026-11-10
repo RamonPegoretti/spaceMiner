@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { UI } from './assets';
@@ -85,6 +86,12 @@ export default function LoginForm({ devLogin, notice = '' }: { devLogin: boolean
           <button className="btn" type="submit" disabled={busy}>
             {mode === 'login' ? 'LAUNCH' : 'CREATE PILOT'}
           </button>
+          {mode === 'register' && (
+            <p className="muted" style={{ margin: 0, fontSize: 13, lineHeight: 1.4 }}>
+              By creating a pilot you accept the <Link href="/terms" style={{ color: 'var(--yellow)' }}>Terms</Link>. Your email is only used to log you in. Your pilot name is visible to other players. See the{' '}
+              <Link href="/privacy" style={{ color: 'var(--yellow)' }}>Privacy policy</Link>.
+            </p>
+          )}
         </form>
       </section>
 
@@ -99,6 +106,12 @@ export default function LoginForm({ devLogin, notice = '' }: { devLogin: boolean
           </button>
         </section>
       )}
+
+      <footer className="tiny legal-links" style={{ textShadow: '2px 2px 0 #07050d' }}>
+        <Link href="/privacy">PRIVACY</Link>
+        <span className="muted">·</span>
+        <Link href="/terms">TERMS</Link>
+      </footer>
     </div>
   );
 }

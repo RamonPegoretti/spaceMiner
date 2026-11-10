@@ -55,6 +55,7 @@ export default function GameScreen({ pilot: initialPilot, saved }: { pilot: Publ
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [screen, setScreen] = useState<Screen>('map');
+  const [account, setAccount] = useState(false);
   const [draft, setDraft] = useState<string[] | null>(null);
   const draftRef = useRef(draft);
   draftRef.current = draft;
@@ -121,7 +122,7 @@ export default function GameScreen({ pilot: initialPilot, saved }: { pilot: Publ
   };
 
   const logout = async () => {
-    await fetch('/api/auth/logout', { method: 'POST' });
+    await fetch('/api/auth/logout', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
     router.replace('/login');
     router.refresh();
   };
@@ -187,10 +188,15 @@ export default function GameScreen({ pilot: initialPilot, saved }: { pilot: Publ
             <span style={{ fontSize: 22, fontWeight: 700, color: 'var(--yellow)' }}>{pilot.credits.toLocaleString('en-US')}</span>
           </div>
           <div className="panel hud-pilot" style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '0 2px 0 4px' }}>
-            <span style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.1, minWidth: 0, flex: 1 }}>
-              <span className="tiny muted">{pilot.isTest ? 'TEST PILOT' : 'PILOT'}</span>
+            <button
+              onClick={() => setAccount((a) => !a)}
+              aria-expanded={account}
+              title="Account"
+              style={{ display: 'flex', flexDirection: 'column', lineHeight: 1.1, minWidth: 0, flex: 1, background: 'none', border: 0, padding: 0, textAlign: 'left', cursor: 'pointer' }}
+            >
+              <span className="tiny muted">{pilot.isTest ? 'TEST PILOT' : 'PILOT'} ▾</span>
               <span className="hud-pilot-name">{pilot.name}</span>
-            </span>
+            </button>
             <button className="btn-alt" style={{ fontSize: 14, minHeight: 36 }} onClick={logout}>EXIT</button>
           </div>
         </div>
@@ -223,6 +229,8 @@ export default function GameScreen({ pilot: initialPilot, saved }: { pilot: Publ
           </button>
         ))}
       </nav>
+
+      {account && <AccountPanel pilot={pilot} onLogout={logout} onClose={() => setAccount(false)} />}
 
       {screen === 'map' && field && world && system && (
         <FieldPanel
@@ -267,6 +275,73 @@ export default function GameScreen({ pilot: initialPilot, saved }: { pilot: Publ
         )}
       </footer>
     </main>
+  );
+}
+
+/** Your account: download your data, delete your pilot, log out everywhere, legal pages. */
+function AccountPanel({ pilot, onLogout, onClose }: { pilot: PublicPilot; onLogout: () => void; onClose: () => void }) {
+  const router = useRouter();
+  const [confirm, setConfirm] = useState(false);
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const remove = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError('');
+    const res = await fetch('/api/account/delete', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ password }) }).catch(() => null);
+    const data = res ? await res.json().catch(() => ({})) : {};
+    if (res?.ok) {
+      router.replace('/login');
+      router.refresh();
+      return;
+    }
+    setError(data.error ?? 'Something went wrong. Try again.');
+    setBusy(false);
+  };
+
+  return (
+    <section className="panel account-panel" aria-label="Account">
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="tiny muted">{pilot.isTest ? 'TEST PILOT' : 'PILOT'} · ACCOUNT</div>
+          <div style={{ fontSize: 20, fontWeight: 700, color: 'var(--yellow)', overflowWrap: 'anywhere' }}>{pilot.name}</div>
+        </div>
+        <button className="btn-alt" aria-label="Close" style={{ fontSize: 14, minHeight: 36, padding: '0 4px' }} onClick={onClose}>✕</button>
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 10 }}>
+        <a className="btn-alt" style={{ fontSize: 15, textDecoration: 'none' }} href="/api/account/export" download>DOWNLOAD MY DATA</a>
+        <button className="btn-alt" style={{ fontSize: 15 }} onClick={onLogout}>LOG OUT ON ALL DEVICES</button>
+        {!confirm ? (
+          <button className="btn-alt" style={{ fontSize: 15, color: 'var(--orange)' }} onClick={() => setConfirm(true)}>DELETE PILOT</button>
+        ) : (
+          <form onSubmit={remove} className="panel-warn" style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 4 }}>
+            <p style={{ margin: 0, fontSize: 14, lineHeight: 1.35 }}>
+              This permanently deletes your pilot, credits, claims and factory. This cannot be undone.
+            </p>
+            {!pilot.isTest && (
+              <label style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <span className="tiny">PASSWORD</span>
+                <input className="field" type="password" required autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />
+              </label>
+            )}
+            {error && <p role="alert" style={{ margin: 0, color: 'var(--orange)', fontSize: 14 }}>{error}</p>}
+            <div style={{ display: 'flex', gap: 6 }}>
+              <button type="button" className="btn-alt" style={{ flex: 1, fontSize: 14 }} disabled={busy} onClick={() => (setConfirm(false), setError(''))}>KEEP</button>
+              <button type="submit" className="btn" style={{ flex: 1, fontSize: 14 }} disabled={busy}>DELETE FOREVER</button>
+            </div>
+          </form>
+        )}
+      </div>
+
+      <p className="tiny account-links" style={{ margin: '10px 0 0', display: 'flex', gap: 8, justifyContent: 'center' }}>
+        <a href="/privacy" target="_blank" rel="noopener">PRIVACY</a>
+        <span className="muted">·</span>
+        <a href="/terms" target="_blank" rel="noopener">TERMS</a>
+      </p>
+    </section>
   );
 }
 

@@ -11,6 +11,9 @@ export interface Pilot {
   isTest: boolean;
   credits: number;
   createdAt: string;
+  /** Login cookies made with an older version no longer work. */
+  sessionVersion: number;
+  lastSeenAt: string;
 }
 
 export interface NewPilot {
@@ -26,6 +29,14 @@ export interface PilotStore {
   byId(id: string): Promise<Pilot | null>;
   byEmail(email: string): Promise<Pilot | null>;
   nameTaken(name: string): Promise<boolean>;
+  /** Logs the pilot out on every device. */
+  bumpSessionVersion(id: string): Promise<void>;
+  /** Marks the pilot as active now. */
+  touch(id: string): Promise<void>;
+  /** Deletes the pilot. In Postgres their claims and factory go with them (ON DELETE CASCADE). */
+  remove(id: string): Promise<void>;
+  /** Deletes test pilots idle for more than `days`. Returns their ids. Real pilots are never touched. */
+  purgeIdleTestPilots(days: number, now?: number): Promise<string[]>;
 }
 
 export class MemoryPilotStore implements PilotStore {
@@ -39,6 +50,8 @@ export class MemoryPilotStore implements PilotStore {
       isTest: p.isTest ?? false,
       credits: STARTING_CREDITS,
       createdAt: new Date().toISOString(),
+      sessionVersion: 0,
+      lastSeenAt: new Date().toISOString(),
     };
     this.pilots.set(pilot.id, pilot);
     return pilot;
@@ -55,6 +68,23 @@ export class MemoryPilotStore implements PilotStore {
     for (const p of this.pilots.values()) if (p.name.toLowerCase() === n) return true;
     return false;
   }
+  async bumpSessionVersion(id: string) {
+    const p = this.pilots.get(id);
+    if (p) p.sessionVersion++;
+  }
+  async touch(id: string) {
+    const p = this.pilots.get(id);
+    if (p) p.lastSeenAt = new Date().toISOString();
+  }
+  async remove(id: string) {
+    this.pilots.delete(id);
+  }
+  async purgeIdleTestPilots(days: number, now = Date.now()) {
+    const cutoff = now - days * 86_400_000;
+    const gone = [...this.pilots.values()].filter((p) => p.isTest && Date.parse(p.lastSeenAt) < cutoff).map((p) => p.id);
+    for (const id of gone) this.pilots.delete(id);
+    return gone;
+  }
 }
 
 type Row = Record<string, unknown>;
@@ -66,6 +96,8 @@ const toPilot = (r: Row): Pilot => ({
   isTest: Boolean(r.is_test),
   credits: Number(r.credits),
   createdAt: new Date(r.created_at as string).toISOString(),
+  sessionVersion: Number(r.session_version ?? 0),
+  lastSeenAt: new Date((r.last_seen_at ?? r.created_at) as string).toISOString(),
 });
 
 class PostgresPilotStore implements PilotStore {
@@ -91,6 +123,24 @@ class PostgresPilotStore implements PilotStore {
     const sql = await db();
     const rows = await sql`SELECT 1 FROM pilots WHERE lower(name) = lower(${name})`;
     return rows.length > 0;
+  }
+  async bumpSessionVersion(id: string) {
+    const sql = await db();
+    await sql`UPDATE pilots SET session_version = session_version + 1 WHERE id = ${id}`;
+  }
+  async touch(id: string) {
+    const sql = await db();
+    await sql`UPDATE pilots SET last_seen_at = now() WHERE id = ${id}`;
+  }
+  async remove(id: string) {
+    const sql = await db();
+    await sql`DELETE FROM pilots WHERE id = ${id}`;
+  }
+  async purgeIdleTestPilots(days: number, now = Date.now()) {
+    const sql = await db();
+    const cutoff = new Date(now - days * 86_400_000).toISOString();
+    const rows = await sql`DELETE FROM pilots WHERE is_test AND last_seen_at < ${cutoff} RETURNING id`;
+    return rows.map((r) => String(r.id));
   }
 }
 
