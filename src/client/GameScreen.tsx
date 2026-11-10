@@ -11,6 +11,7 @@ import type { PublicPilot } from '@/server/http';
 import type { WorldView } from '@/server/world';
 import { UI } from './assets';
 import FleetPanel from './FleetPanel';
+import HowToPlay, { firstVisit } from './HowToPlay';
 import type { MapView } from './MapCanvas';
 import { fmtDuration, fmtTonnes, oreNow, remainingNow, serverNow, toClientWorld, type ClientWorld } from './world';
 
@@ -71,6 +72,8 @@ export default function GameScreen({ pilot: initialPilot, saved }: { pilot: Publ
     if (!g.byId.get(last)!.links.includes(id)) return setError(`${g.byId.get(id)!.name} is not linked to ${g.byId.get(last)!.name} by a lane.`);
     setDraft([...d, id]);
   }, []);
+  const [guide, setGuide] = useState(false);
+  useEffect(() => setGuide(firstVisit()), []);
   const [phone, setPhone] = useState(false);
   useEffect(() => {
     const check = () => setPhone(window.innerWidth <= 640);
@@ -222,6 +225,9 @@ export default function GameScreen({ pilot: initialPilot, saved }: { pilot: Publ
             <img src={n.icon} alt="" width={36} height={36} />
           </button>
         ))}
+        <button className="hud-nav-item hud-help" aria-label="How to play" title="How to play" onClick={() => setGuide(true)}>
+          ?
+        </button>
       </nav>
 
       {screen === 'map' && field && world && system && (
@@ -266,6 +272,8 @@ export default function GameScreen({ pilot: initialPilot, saved }: { pilot: Publ
           </div>
         )}
       </footer>
+
+      {guide && <HowToPlay onClose={() => setGuide(false)} />}
     </main>
   );
 }
