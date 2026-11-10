@@ -71,6 +71,26 @@ button, input { font: inherit; color: inherit; }
 .route-list li::marker { color: var(--yellow); font-weight: 700; }
 .hauler-row { background: var(--well); border: 3px solid var(--ink); padding: 6px 8px; }
 
+/* How to play guide (src/client/HowToPlay.tsx) */
+.hud-help { width: 60px; height: 48px; font-size: 26px; font-weight: 700; color: var(--yellow); cursor: pointer; text-shadow: 2px 2px 0 var(--ink); }
+.guide-backdrop { position: fixed; inset: 0; z-index: 20; background: rgba(7, 5, 13, 0.7); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.guide { font-variant-ligatures: none; width: 620px; max-width: 100%; max-height: calc(100dvh - 32px); display: flex; flex-direction: column; padding: 4px; }
+.guide-tabs { display: flex; gap: 4px; margin-top: 10px; overflow-x: auto; flex: none; }
+.guide-tabs .btn, .guide-tabs .btn-alt { font-size: 13px; min-height: 38px; flex: 1 0 auto; }
+.guide-body { overflow-y: auto; margin-top: 8px; padding: 4px 8px; background: var(--well); border: 3px solid var(--ink); font-size: 15px; line-height: 1.45; flex: 1; min-height: 0; }
+.guide-body h3 { color: var(--yellow); font-size: 16px; margin: 14px 0 4px; }
+.guide-body p, .guide-body ul, .guide-body ol { margin: 6px 0; }
+.guide-body ul, .guide-body ol { padding-left: 22px; }
+.guide-body li { margin: 3px 0; }
+.guide-body li::marker { color: var(--yellow); }
+.guide-icons { list-style: none; padding-left: 0 !important; }
+.guide-icons li { display: flex; align-items: center; gap: 8px; }
+@media (max-width: 640px) {
+  .hud-help { width: 48px; }
+  .guide-backdrop { padding: 8px; align-items: stretch; }
+  .guide { max-height: none; }
+}
+
 @media (max-width: 640px) {
   .hud-top { top: 8px; left: 8px; right: 8px; gap: 6px; }
   .hud-logo, .hud-system, .hud-hint { display: none !important; }
