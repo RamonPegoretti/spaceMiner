@@ -4,7 +4,8 @@ import { useEffect, useRef } from 'react';
 import { fieldPosition, fieldSpawn, galaxy, MAP_H, MAP_W, ORBIT_TILT, rng, type GalaxySystem } from '@/game/galaxy';
 import type { Ore } from '@/game/resources';
 import { PIXEL_SCALE, SPRITES } from './assets';
-import { remainingNow, serverNow, type ClientWorld } from './world';
+import { haulerPosition, HOME } from '@/game/haulers';
+import { fmtTonnes, remainingNow, serverNow, type ClientWorld } from './world';
 
 export type MapView = { mode: 'galaxy' } | { mode: 'system'; id: string };
 
@@ -19,6 +20,8 @@ interface Props {
   selected: string | null;
   onPickSystem: (id: string) => void;
   onPickField: (slot: string | null) => void;
+  /** A hauler route being plotted, as system ids (Fleet screen). */
+  route?: string[] | null;
 }
 
 /**
@@ -123,7 +126,12 @@ export default function MapCanvas(props: Props) {
           dotLine(g, p.x, p.y, q.x, q.y, 0x6a5a9a);
         }
         world.addChild(g);
-        const flyers = G.lanes.filter((_, i) => i % 2 === 0).map(([a, b], i) => flyer([G.byId.get(a)!, G.byId.get(b)!], 6 + (i % 3) * 2, i * 37));
+        // Ambient traffic, faint, so it never looks like your own haulers.
+        const flyers = G.lanes.filter((_, i) => i % 3 === 0).map(([a, b], i) => flyer([G.byId.get(a)!, G.byId.get(b)!], 6 + (i % 3) * 2, i * 37));
+        for (const f of flyers) (f.ship.alpha = 0.45), (f.trail.alpha = 0.45);
+        const routeG = new Graphics();
+        world.addChild(routeG);
+        const myShips = new Map<string, { ship: InstanceType<typeof Sprite>; trail: InstanceType<typeof Graphics> }>();
 
         const stars = new Graphics();
         const marks = new Graphics();
@@ -145,6 +153,44 @@ export default function MapCanvas(props: Props) {
             const w = latest.current.world.current;
             marks.clear();
             for (const f of flyers) moveFlyer(f, t, 0.6);
+
+            // Your haulers, where they really are.
+            const now = serverNow(w);
+            const live = new Set<string>();
+            for (const h of w?.haulers ?? []) {
+              live.add(h.id);
+              let m = myShips.get(h.id);
+              if (!m) {
+                m = { ship: sprite('hauler', 0, 0), trail: new Graphics() };
+                world.addChild(m.trail, m.ship);
+                myShips.set(h.id, m);
+              }
+              const p = haulerPosition({ ...h, pilotId: '', removedAt: null }, now);
+              m.ship.position.set(Math.round(p.x), Math.round(p.y));
+              m.ship.rotation = Math.round((p.angle + Math.PI / 2) / (Math.PI / 4)) * (Math.PI / 4);
+              m.trail.clear();
+              if (p.phase === 'outbound' || p.phase === 'returning')
+                [0xfff2c0, 0xffcc33, 0xffcc33, 0xff7a2e, 0x8f2a10].forEach((c, j) => {
+                  if (j > 2 && (j + Math.floor(t * 8)) % 2) return;
+                  m!.trail.rect(Math.round(p.x - Math.cos(p.angle) * (7 + j * 2)), Math.round(p.y - Math.sin(p.angle) * (7 + j * 2)), 1, 1).fill(c);
+                });
+              brackets(marks, p.x, p.y, 6, YELLOW);
+            }
+            for (const [id, m] of myShips) if (!live.has(id)) (m.ship.destroy(), m.trail.destroy(), myShips.delete(id));
+
+            // The route being plotted, and the systems it can go to next.
+            routeG.clear();
+            const route = latest.current.route;
+            if (route) {
+              for (let i = 1; i < route.length; i++) {
+                const a = G.byId.get(route[i - 1])!, b = G.byId.get(route[i])!;
+                dotLine(routeG, a.x, a.y, b.x, b.y, YELLOW, 3, 4);
+              }
+              const last = route.length ? G.byId.get(route[route.length - 1]) : undefined;
+              const pulse = Math.floor(t * 3) % 2 === 0;
+              if (last && last.id !== HOME) for (const id of last.links) if (!route.includes(id)) brackets(marks, G.byId.get(id)!.x, G.byId.get(id)!.y, 8, pulse ? 0x6fe08a : 0x2f7a40);
+              for (const id of route) brackets(marks, G.byId.get(id)!.x, G.byId.get(id)!.y, 10, 0xffffff);
+            }
             for (const { s, name, info } of sysLabels) {
               let free = 0, mine = 0, taken = 0;
               for (const slot of s.slots) {
@@ -156,8 +202,10 @@ export default function MapCanvas(props: Props) {
               }
               if (mine) brackets(marks, s.x, s.y, 9, YELLOW);
               else if (taken && !free) brackets(marks, s.x, s.y, 9, RED);
-              info.text = w ? (mine ? `${mine} YOURS · ${free} FREE` : `${free} FREE`) : '';
-              info.style.fill = mine ? YELLOW : free ? 0xb9a8e0 : 0xff7a2e;
+              const pile = w?.stockpiles[s.id];
+              const waiting = pile ? Object.values(pile).reduce((a, p) => a + (p?.amount ?? 0), 0) : 0;
+              info.text = w ? [mine ? `${mine} YOURS` : '', `${free} FREE`, waiting >= 1 ? `${fmtTonnes(waiting)} T WAITING` : ''].filter(Boolean).join(' · ') : '';
+              info.style.fill = waiting >= 1 || mine ? YELLOW : free ? 0xb9a8e0 : 0xff7a2e;
               name.position.set(Math.round(world.x + s.x * scale()), Math.round(world.y + (s.y + 9) * scale()));
               info.position.set(name.x, name.y + 15);
             }

@@ -19,6 +19,12 @@ With no `DATABASE_URL`, pilots live in memory and reset on restart. Use **Test p
 - When a field runs dry, a new field with a new name, ore and size spawns in the same slot an hour later.
 - Only claims and field generations are stored (`claims`, `field_slots` tables). A unique index allows one open claim per field.
 
+## How haulers work
+
+- Ore mined in Vasko's Reach goes straight into the silo at the Home Foundry. Ore mined anywhere else piles up in that system.
+- On the Fleet screen a pilot plots a route by tapping systems linked by lanes, ending at Vasko's Reach, and buys a hauler for it (1,000 credits, up to 5).
+- A hauler shuttles forever: load up to 500 t, fly home, unload into the silo, fly back. `src/game/haulers.ts` replays every trip in time order from timestamps, so haulers sharing a system split its ore fairly and nothing ticks on the server.
+
 ## Settings (environment variables)
 
 | Name | What it does |

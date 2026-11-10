@@ -5,10 +5,12 @@ import { useRouter } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CLAIM_COST, MAX_CLAIMS } from '@/game/claims';
 import { galaxy } from '@/game/galaxy';
+import { HOME } from '@/game/haulers';
 import { ORE_INFO, ORES, type Ore } from '@/game/resources';
 import type { PublicPilot } from '@/server/http';
 import type { WorldView } from '@/server/world';
 import { UI } from './assets';
+import FleetPanel from './FleetPanel';
 import type { MapView } from './MapCanvas';
 import { fmtDuration, fmtTonnes, oreNow, remainingNow, serverNow, toClientWorld, type ClientWorld } from './world';
 
@@ -18,12 +20,12 @@ const FactoryScreen = dynamic(() => import('./FactoryScreen'), { ssr: false });
 const ORE_ICON: Record<Ore, string> = { iron: UI.oreIron, nickel: UI.oreNickel, ice: UI.oreIce, silicate: UI.oreSil };
 const POLL_MS = 5_000;
 
-type Screen = 'map' | 'factory';
+type Screen = 'map' | 'factory' | 'fleet';
 const NAV: { label: string; icon: string; screen?: Screen }[] = [
   { label: 'Map', icon: UI.iconMap, screen: 'map' },
   { label: 'Factory', icon: UI.iconFactory, screen: 'factory' },
   { label: 'Market', icon: UI.iconMarket },
-  { label: 'Fleet', icon: UI.iconFleet },
+  { label: 'Fleet', icon: UI.iconFleet, screen: 'fleet' },
 ];
 
 async function api(url: string, body?: unknown): Promise<{ pilot: PublicPilot; world: WorldView }> {
@@ -53,6 +55,22 @@ export default function GameScreen({ pilot: initialPilot, saved }: { pilot: Publ
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [screen, setScreen] = useState<Screen>('map');
+  const [draft, setDraft] = useState<string[] | null>(null);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  /** On the Fleet screen, tapping systems plots a route. */
+  const addStop = useCallback((id: string) => {
+    const d = draftRef.current;
+    if (!d) return;
+    setError('');
+    const g = galaxy();
+    if (d.length === 0) return setDraft([id]);
+    const last = d[d.length - 1];
+    if (last === HOME) return;
+    if (d.includes(id)) return setDraft(d.slice(0, d.indexOf(id) + 1));
+    if (!g.byId.get(last)!.links.includes(id)) return setError(`${g.byId.get(id)!.name} is not linked to ${g.byId.get(last)!.name} by a lane.`);
+    setDraft([...d, id]);
+  }, []);
   const [phone, setPhone] = useState(false);
   useEffect(() => {
     const check = () => setPhone(window.innerWidth <= 640);
@@ -92,9 +110,11 @@ export default function GameScreen({ pilot: initialPilot, saved }: { pilot: Publ
     setError('');
     try {
       apply(await api(url, body));
+      return true;
     } catch (e) {
-      if ((e as { loggedOut?: boolean }).loggedOut) return loggedOut();
-      setError((e as Error).message);
+      if ((e as { loggedOut?: boolean }).loggedOut) loggedOut();
+      else setError((e as Error).message);
+      return false;
     } finally {
       setBusy(false);
     }
@@ -121,8 +141,15 @@ export default function GameScreen({ pilot: initialPilot, saved }: { pilot: Publ
 
   return (
     <main style={{ position: 'fixed', inset: 0 }}>
-      {screen === 'map' ? (
-        <MapCanvas view={view} world={worldRef} selected={selected} onPickSystem={enterSystem} onPickField={pickField} />
+      {screen !== 'factory' ? (
+        <MapCanvas
+          view={screen === 'fleet' ? { mode: 'galaxy' } : view}
+          world={worldRef}
+          selected={selected}
+          route={screen === 'fleet' ? draft : null}
+          onPickSystem={screen === 'fleet' ? addStop : enterSystem}
+          onPickField={pickField}
+        />
       ) : (
         <FactoryScreen onPilot={setPilot} phone={phone} />
       )}
@@ -134,6 +161,11 @@ export default function GameScreen({ pilot: initialPilot, saved }: { pilot: Publ
             <>
               <span className="tiny muted">FACTORY</span>
               <span style={{ fontWeight: 600, paddingRight: 4 }}>Home Foundry</span>
+            </>
+          ) : screen === 'fleet' ? (
+            <>
+              <span className="tiny muted">FLEET</span>
+              <span style={{ fontWeight: 600, paddingRight: 4 }}>Hauler routes</span>
             </>
           ) : system ? (
             <>
@@ -184,7 +216,7 @@ export default function GameScreen({ pilot: initialPilot, saved }: { pilot: Publ
             aria-current={n.screen === screen ? 'page' : undefined}
             title={n.screen ? n.label : `${n.label}: coming soon`}
             disabled={!n.screen}
-            onClick={() => n.screen && (setScreen(n.screen), setSelected(null))}
+            onClick={() => n.screen && (setScreen(n.screen), setSelected(null), setDraft(null), setError(''))}
             style={n.screen === screen ? { minHeight: 0, padding: 0 } : { cursor: n.screen ? 'pointer' : undefined }}
           >
             <img src={n.icon} alt="" width={36} height={36} />
@@ -206,7 +238,22 @@ export default function GameScreen({ pilot: initialPilot, saved }: { pilot: Publ
         />
       )}
 
-      <footer className="hud-bottom" style={screen === 'factory' ? { display: 'none' } : undefined}>
+      {screen === 'fleet' && (
+        <FleetPanel
+          world={world}
+          credits={pilot.credits}
+          draft={draft}
+          setDraft={(d) => (setDraft(d), setError(''))}
+          busy={busy}
+          error={error}
+          onBuy={async (route) => {
+            if (await act('/api/haulers', { route })) setDraft(null);
+          }}
+          onScrap={(id) => act('/api/haulers/scrap', { id })}
+        />
+      )}
+
+      <footer className="hud-bottom" style={screen !== 'map' ? { display: 'none' } : undefined}>
         <div className="panel hud-hint" style={{ padding: '0 4px', display: screen === 'map' ? undefined : 'none' }}>
           <span className="tiny muted">
             {system ? 'TAP A FIELD TO CLAIM IT · TAP A GATE TO JUMP' : 'TAP A STAR SYSTEM TO ENTER'} · DRAG TO MOVE · SCROLL OR PINCH TO ZOOM
@@ -291,13 +338,17 @@ function FieldPanel(p: {
         ) : f.claim?.mine ? (
           <p style={{ margin: 0 }}>
             <b style={{ color: 'var(--green)' }}>Your rig is mining {f.rate} t/min.</b> Runs dry in {fmtDuration((left / f.rate) * 60_000)}.
+            {!f.slot.startsWith(`${HOME}-`) && ' Ore piles up in this system until a hauler flies it home (Fleet).'}
           </p>
         ) : f.claim ? (
           <p style={{ margin: 0 }}>
             Claimed by <b style={{ color: '#ff6a5a' }}>{f.claim.pilotName}</b>, mining {f.rate} t/min. Dry in {fmtDuration((left / f.rate) * 60_000)}.
           </p>
         ) : (
-          <p style={{ margin: 0 }}>Free to claim. Your rig mines 25 t/min until the field runs dry.</p>
+          <p style={{ margin: 0 }}>
+            Free to claim. Your rig mines 25 t/min until the field runs dry.
+            {!f.slot.startsWith(`${HOME}-`) && " Outside Vasko's Reach you need a hauler to bring the ore home."}
+          </p>
         )}
       </div>
 
